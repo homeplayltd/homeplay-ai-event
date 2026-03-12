@@ -283,45 +283,59 @@
     margin-left: auto;
     margin-right: auto;
   }
-  .moment-bars {
-    display: flex;
-    justify-content: center;
-    gap: 2.5rem;
-    margin-top: 3.5rem;
-    flex-wrap: wrap;
-  }
-  .moment-bar {
+  /* ── Waffle chart ── */
+  .waffle-wrapper {
     display: flex;
     flex-direction: column;
     align-items: center;
-    width: 200px;
+    gap: 1.75rem;
+    margin-top: 3.5rem;
   }
-  .bar-track {
-    width: 3px;
-    height: 120px;
-    background: rgba(255,255,255,0.1);
-    position: relative;
-    margin-bottom: 1.25rem;
-    overflow: hidden;
-  }
-  .bar-fill {
-    position: absolute;
-    bottom: 0;
+  #waffleCanvas {
     width: 100%;
-    background: var(--blush);
-    transition: height 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+    max-width: 480px;
+    aspect-ratio: 1 / 1;
+    display: block;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
   }
-  .bar-value {
-    font-family: 'Times Now', serif;
-    font-size: 1.75rem;
-    color: var(--blush);
-    margin-bottom: 0.5rem;
+  .waffle-note {
+    font-family: 'Saans', sans-serif;
+    font-size: 0.6875rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.25);
   }
-  .bar-label {
+  .waffle-legend {
+    display: flex;
+    gap: 1rem 2.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 640px;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
     font-family: 'Saans', sans-serif;
     font-size: 0.8125rem;
     color: rgba(255,255,255,0.6);
-    line-height: 1.5;
+  }
+  .legend-swatch {
+    width: 11px;
+    height: 11px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .legend-swatch.building { background: var(--blush); }
+  .legend-swatch.chatting { background: var(--olive); }
+  .legend-swatch.online   { background: rgba(255,255,255,0.18); outline: 1px solid rgba(255,255,255,0.15); outline-offset: 0; }
+  .legend-swatch.offline  { background: rgba(255,255,255,0.06); outline: 1px solid rgba(255,255,255,0.1); outline-offset: 0; }
+  .legend-pct {
+    font-family: 'Times Now', serif;
+    font-size: 1.0625rem;
+    color: var(--blush);
+    margin-right: 0.15rem;
   }
 
   /* ── Timeline ── */
@@ -751,21 +765,14 @@
 <section class="moment" id="landscape">
   <div class="section-eyebrow reveal">The Opportunity</div>
   <h2 class="section-heading reveal">This is your moment</h2>
-  <div class="moment-bars reveal">
-    <div class="moment-bar">
-      <div class="bar-track"><div class="bar-fill" data-height="90%"></div></div>
-      <div class="bar-value">74%</div>
-      <div class="bar-label">of the world<br>is online</div>
-    </div>
-    <div class="moment-bar">
-      <div class="bar-track"><div class="bar-fill" data-height="45%"></div></div>
-      <div class="bar-value">16%</div>
-      <div class="bar-label">are chatting<br>with AI</div>
-    </div>
-    <div class="moment-bar">
-      <div class="bar-track"><div class="bar-fill" data-height="5%"></div></div>
-      <div class="bar-value">0.04%</div>
-      <div class="bar-label">are building<br>with AI</div>
+  <div class="waffle-wrapper reveal">
+    <canvas id="waffleCanvas" width="480" height="480"></canvas>
+    <p class="waffle-note">10,000 squares &mdash; each represents 0.01% of the world&rsquo;s population</p>
+    <div class="waffle-legend">
+      <div class="legend-item"><span class="legend-swatch building"></span><span class="legend-pct">0.04%</span>Building with AI</div>
+      <div class="legend-item"><span class="legend-swatch chatting"></span><span class="legend-pct">16%</span>Chatting with AI</div>
+      <div class="legend-item"><span class="legend-swatch online"></span><span class="legend-pct">74%</span>Online</div>
+      <div class="legend-item"><span class="legend-swatch offline"></span><span class="legend-pct">26%</span>Not yet online</div>
     </div>
   </div>
 </section>
@@ -1038,18 +1045,39 @@
   }, { threshold: 0.15 });
   reveals.forEach(el => observer.observe(el));
 
-  // ── Animated bars ──
-  const barObserver = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        entry.target.querySelectorAll('.bar-fill').forEach(bar => {
-          bar.style.height = bar.dataset.height;
-        });
-        barObserver.unobserve(entry.target);
+  // ── Waffle chart ──
+  (function () {
+    const canvas = document.getElementById('waffleCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const COLS = 100, ROWS = 100;
+    const CW = canvas.width  / COLS;
+    const CH = canvas.height / ROWS;
+    const PAD = 0.7;
+
+    // Segments ordered top-left first so the 4 'building' cells are visible
+    const segments = [
+      { count: 4,    color: '#F2E0D6' },              // 0.04% building — blush
+      { count: 1596, color: '#707052' },              // ~16% chatting  — olive
+      { count: 5800, color: 'rgba(255,255,255,0.13)' }, // 58% online only
+      { count: 2600, color: 'rgba(255,255,255,0.04)' }, // 26% offline
+    ];
+
+    let idx = 0;
+    segments.forEach(seg => {
+      ctx.fillStyle = seg.color;
+      for (let n = 0; n < seg.count; n++, idx++) {
+        const col = idx % COLS;
+        const row = Math.floor(idx / COLS);
+        ctx.fillRect(
+          col * CW + PAD,
+          row * CH + PAD,
+          CW - PAD * 2,
+          CH - PAD * 2
+        );
       }
     });
-  }, { threshold: 0.3 });
-  document.querySelectorAll('.moment-bars').forEach(el => barObserver.observe(el));
+  })();
 
   // ── Smooth scroll for nav links ──
   document.querySelectorAll('a[href^="#"]').forEach(a => {
